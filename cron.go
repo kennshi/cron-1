@@ -14,6 +14,7 @@ type Cron struct {
 	entries  []*Entry
 	stop     chan struct{}
 	add      chan *Entry
+	remove chan string
 	snapshot chan []*Entry
 	running  bool
 }
@@ -45,7 +46,10 @@ type Entry struct {
 	Prev time.Time
 
 	// The Job to run.
-	Job Job
+	Job 		Job
+
+	//the identification for the job
+	Uuid		string
 }
 
 // byTime is a wrapper for sorting the entry array by time
@@ -84,25 +88,34 @@ type FuncJob func()
 func (f FuncJob) Run() { f() }
 
 // AddFunc adds a func to the Cron to be run on the given schedule.
-func (c *Cron) AddFunc(spec string, cmd func()) error {
-	return c.AddJob(spec, FuncJob(cmd))
+func (c *Cron) AddFunc(uuid string, spec string, cmd func()) error {
+	return c.AddJob(uuid, spec, FuncJob(cmd))
 }
 
 // AddFunc adds a Job to the Cron to be run on the given schedule.
-func (c *Cron) AddJob(spec string, cmd Job) error {
+func (c *Cron) AddJob(uuid string, spec string, cmd Job) error {
 	schedule, err := Parse(spec)
 	if err != nil {
 		return err
 	}
-	c.Schedule(schedule, cmd)
+	c.Schedule(uuid, schedule, cmd)
 	return nil
 }
 
+func (c *Cron)RemoveJob(uuid string){
+	if(c.running){
+		c.remove <- uuid
+	}else{
+		c.removeEntry(uuid)
+	}
+}
+
 // Schedule adds a Job to the Cron to be run on the given schedule.
-func (c *Cron) Schedule(schedule Schedule, cmd Job) {
+func (c *Cron) Schedule(uuid string, schedule Schedule, cmd Job) {
 	entry := &Entry{
 		Schedule: schedule,
 		Job:      cmd,
+		Uuid:	 uuid,
 	}
 	if !c.running {
 		c.entries = append(c.entries, entry)
@@ -181,6 +194,9 @@ test1:
 			c.entries = append(c.entries, newEntry)
 			newEntry.Next = newEntry.Schedule.Next(now)
 
+		case removeid  := <-c.remove:
+			c.RemoveJob(removeid)
+
 		case <-c.snapshot:
 			c.snapshot <- c.entrySnapshot()
 
@@ -208,7 +224,18 @@ func (c *Cron) entrySnapshot() []*Entry {
 			Next:     e.Next,
 			Prev:     e.Prev,
 			Job:      e.Job,
+			Uuid:	 e.Uuid,
 		})
 	}
 	return entries
+}
+
+func (c *Cron) removeEntry(uuid string) {
+	var entries []*Entry
+	for _, e := range c.entries {
+		if e.Uuid != uuid {
+			entries = append(entries, e)
+		}
+	}
+	c.entries = entries
 }
