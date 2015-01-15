@@ -78,6 +78,7 @@ func NewCron() *Cron {
 		add:      make(chan *Entry),
 		stop:     make(chan struct{}),
 		snapshot: make(chan []*Entry),
+		remove : make(chan string),
 		running:  false,
 	}
 }
@@ -195,7 +196,7 @@ test1:
 			newEntry.Next = newEntry.Schedule.Next(now)
 
 		case removeid  := <-c.remove:
-			c.RemoveJob(removeid)
+			c.removeEntry(removeid)
 
 		case <-c.snapshot:
 			c.snapshot <- c.entrySnapshot()
